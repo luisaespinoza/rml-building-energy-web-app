@@ -1,0 +1,19 @@
+{
+  "name": "minimal-ml-web-app-template",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Reusable static browser deployment template for minimal deployable ML projects.",
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run copy:ort && vite build",
+    "preview": "vite preview",
+    "copy:ort": "node ./scripts/copy-ort-wasm.cjs",
+    "check:artifacts": "node ./scripts/check-artifacts.cjs"
+  },
+  "dependencies": {
+    "onnxruntime-web": "latest",
+    "vite": "latest"
+  },
+  "devDependencies": {}
+}

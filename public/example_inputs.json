@@ -1,0 +1,22 @@
+[
+  {
+    "id": "baseline",
+    "label": "Baseline example",
+    "description": "Neutral placeholder inputs for verifying that the form wiring works.",
+    "inputs": {
+      "FeatureA": 0,
+      "FeatureB": 0,
+      "Category": "A"
+    }
+  },
+  {
+    "id": "alternate",
+    "label": "Alternate example",
+    "description": "Second placeholder profile for testing example loading.",
+    "inputs": {
+      "FeatureA": 1,
+      "FeatureB": -1,
+      "Category": "B"
+    }
+  }
+]
