@@ -1,10 +1,4 @@
-import {
-  CATEGORICAL_COLUMNS,
-  DEFAULT_INPUTS,
-  FALLBACK_CATEGORIES,
-  NUMERIC_COLUMNS,
-  PREPROCESSING_SCHEMA_PATH
-} from "./constants.js";
+import { CATEGORICAL_COLUMNS, DEFAULT_INPUTS, FALLBACK_CATEGORIES, NUMERIC_COLUMNS, PREPROCESSING_SCHEMA_PATH } from "./constants.js";
 
 let cachedSchema = null;
 
@@ -13,17 +7,43 @@ export async function loadPreprocessingSchema(path = PREPROCESSING_SCHEMA_PATH) 
 
   const response = await fetch(path, { cache: "no-store" });
   if (!response.ok) {
-    throw new Error(
-      `Could not load preprocessing schema at ${path}. Place preprocessing_schema.json in public/artifacts/deployment/.`
-    );
+    throw new Error(`Could not load preprocessing schema at ${path}. Place preprocessing_schema.json in public/artifacts/deployment/.`);
   }
 
   cachedSchema = await response.json();
+  validatePreprocessingSchema(cachedSchema);
   return cachedSchema;
 }
 
 export function clearPreprocessingSchemaCache() {
   cachedSchema = null;
+}
+
+export function validatePreprocessingSchema(schema) {
+  if (!schema || typeof schema !== "object") throw new Error("preprocessing_schema.json must be a JSON object.");
+
+  const numericColumns = getNumericColumns(schema);
+  if (!numericColumns.length) throw new Error("preprocessing_schema.json must include numeric_features or numeric_columns.");
+
+  for (const expected of NUMERIC_COLUMNS) {
+    if (!numericColumns.includes(expected)) {
+      throw new Error(`preprocessing_schema.json numeric feature order is missing '${expected}'.`);
+    }
+  }
+
+  const scalerStatus = getScalerStatus(schema);
+  if (!scalerStatus.complete) {
+    const missing = scalerStatus.details
+      .filter((item) => !item.hasMean || !item.hasScale)
+      .map((item) => `${item.column} mean=${item.hasMean} scale=${item.hasScale}`)
+      .join("; ");
+    throw new Error(`Incomplete train-fitted StandardScaler metadata in preprocessing_schema.json: ${missing}`);
+  }
+
+  const expectedLength = getExpectedInputLength(schema);
+  if (expectedLength && expectedLength !== numericColumns.length + encodedCategoricalLength(schema)) {
+    throw new Error(`Schema input_dim=${expectedLength} does not match derived preprocessing length ${numericColumns.length + encodedCategoricalLength(schema)}.`);
+  }
 }
 
 export function preprocessInput(rawInput, schema) {
@@ -41,15 +61,12 @@ export function preprocessInput(rawInput, schema) {
   if (expectedLength && vector.length !== expectedLength) {
     throw new Error(
       `Preprocessed feature vector has length ${vector.length}, but schema/model expected ${expectedLength}. ` +
-        `Numeric columns: ${numericColumns.join(", ")}. Categorical columns: ${categoricalColumns.join(", ")}. ` +
-        "Check preprocessing_schema.json feature ordering/categories."
+        `Numeric columns: ${numericColumns.join(", ")}. Categorical columns: ${categoricalColumns.join(", ")}.`
     );
   }
 
   for (const value of vector) {
-    if (!Number.isFinite(value)) {
-      throw new Error("Preprocessing produced a non-finite value. Check scaler means/scales in preprocessing_schema.json.");
-    }
+    if (!Number.isFinite(value)) throw new Error("Preprocessing produced a non-finite value. Check scaler means/scales.");
   }
 
   return Float32Array.from(vector);
@@ -59,19 +76,11 @@ export function normalizeRawInput(rawInput) {
   const normalized = {};
 
   for (const [key, fallback] of Object.entries(DEFAULT_INPUTS)) {
-    if (typeof fallback === "number") {
-      normalized[key] = numberOrDefault(rawInput?.[key], fallback);
-    } else {
-      normalized[key] = String(rawInput?.[key] ?? fallback);
-    }
+    const parsed = Number(rawInput?.[key]);
+    normalized[key] = Number.isFinite(parsed) ? parsed : fallback;
   }
 
   return normalized;
-}
-
-function numberOrDefault(value, fallback) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 export function getNumericColumns(schema) {
@@ -100,7 +109,7 @@ export function getCategoricalColumns(schema) {
 }
 
 function firstArray(values) {
-  return values.find((value) => Array.isArray(value) && value.length > 0) || null;
+  return values.find((value) => Array.isArray(value)) || null;
 }
 
 export function getExpectedInputLength(schema) {
@@ -137,15 +146,15 @@ function standardize(column, value, schema) {
 
   if (mean === undefined || scale === undefined) {
     throw new Error(
-      `Missing StandardScaler metadata for ${column}. ` +
-        "Browser inference must use the same train-fitted numeric means/scales as Python. " +
-        "Re-export preprocessing_schema.json with numeric means and scales before trusting predictions."
+      `Missing StandardScaler metadata for ${column}. Browser inference must use train-fitted numeric means/scales.`
     );
   }
 
   const numericScale = Number(scale);
-  const safeScale = numericScale === 0 ? 1 : numericScale;
-  return (Number(value) - Number(mean)) / safeScale;
+  if (!Number.isFinite(numericScale) || numericScale === 0) {
+    throw new Error(`Invalid StandardScaler scale for ${column}: ${scale}`);
+  }
+  return (Number(value) - Number(mean)) / numericScale;
 }
 
 function getStat(schema, column, keys) {
@@ -172,9 +181,7 @@ function getStat(schema, column, keys) {
 
 function readNamedOrIndexedStat(source, column, schema) {
   if (source === undefined || source === null) return undefined;
-  if (typeof source === "object" && !Array.isArray(source) && source[column] !== undefined) {
-    return source[column];
-  }
+  if (typeof source === "object" && !Array.isArray(source) && source[column] !== undefined) return source[column];
   if (Array.isArray(source)) {
     const index = getNumericColumns(schema).indexOf(column);
     if (index >= 0 && source[index] !== undefined) return source[index];
@@ -223,6 +230,10 @@ function readCategories(container, column, index) {
   return null;
 }
 
+function encodedCategoricalLength(schema) {
+  return getCategoricalColumns(schema).reduce((sum, column) => sum + getCategories(schema, column).length, 0);
+}
+
 export function getScalerStatus(schema) {
   const numericColumns = schema ? getNumericColumns(schema) : [];
   const details = numericColumns.map((column) => ({
@@ -231,10 +242,7 @@ export function getScalerStatus(schema) {
     hasScale: getStat(schema, column, SCALE_KEYS) !== undefined
   }));
 
-  return {
-    complete: details.every((item) => item.hasMean && item.hasScale),
-    details
-  };
+  return { complete: details.every((item) => item.hasMean && item.hasScale), details };
 }
 
 export function describePreprocessing(schema) {

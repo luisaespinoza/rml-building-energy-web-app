@@ -1,0 +1,62 @@
+{
+  "project": {
+    "name": "building_energy_design_explorer",
+    "task_type": "multi_output_regression",
+    "description": "Predict heating and cooling load from building design attributes."
+  },
+  "exported_at_utc": "2026-05-20T23:22:57.091679+00:00",
+  "preprocessing_schema": "artifacts/deployment/preprocessing_schema.json",
+  "exporter": {
+    "script": "src/export_to_onnx.py",
+    "mode": "dedicated",
+    "opset_version": 17
+  },
+  "model_mode": "dedicated_single_target_pair",
+  "selected_model_name": "tiny_dedicated_pair",
+  "selected_architecture_name": "tiny",
+  "model_hidden_sizes": [
+    32,
+    16
+  ],
+  "input_dim": 8,
+  "output_dim": 2,
+  "target_columns": [
+    "HeatingLoad",
+    "CoolingLoad"
+  ],
+  "prediction_assembly": {
+    "type": "ordered_target_stack",
+    "order": [
+      "HeatingLoad",
+      "CoolingLoad"
+    ],
+    "description": "Run each single-target ONNX model on the same preprocessed input and concatenate predictions in target_columns order."
+  },
+  "models": [
+    {
+      "target_name": "HeatingLoad",
+      "architecture_name": "tiny",
+      "model_hidden_sizes": [
+        32,
+        16
+      ],
+      "input_dim": 8,
+      "output_dim": 1,
+      "onnx_path": "artifacts/deployment/heating_load_model.onnx",
+      "checkpoint_path": "artifacts/models/dedicated/tiny_HeatingLoad.pt"
+    },
+    {
+      "target_name": "CoolingLoad",
+      "architecture_name": "tiny",
+      "model_hidden_sizes": [
+        32,
+        16
+      ],
+      "input_dim": 8,
+      "output_dim": 1,
+      "onnx_path": "artifacts/deployment/cooling_load_model.onnx",
+      "checkpoint_path": "artifacts/models/dedicated/tiny_CoolingLoad.pt"
+    }
+  ],
+  "bundle_checkpoint_path": "artifacts/models/dedicated/tiny_dedicated_bundle.pt"
+}

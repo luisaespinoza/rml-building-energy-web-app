@@ -1,0 +1,45 @@
+{
+  "input_dim": 8,
+  "numeric_features": [
+    "RelativeCompactness",
+    "SurfaceArea",
+    "WallArea",
+    "RoofArea",
+    "OverallHeight",
+    "Orientation",
+    "GlazingArea",
+    "GlazingAreaDistribution"
+  ],
+  "categorical_features": [],
+  "numeric_means": {
+    "RelativeCompactness": 0.7645335820895522,
+    "SurfaceArea": 671.2817164179105,
+    "WallArea": 318.8199626865672,
+    "RoofArea": 176.23087686567163,
+    "OverallHeight": 5.269589552238806,
+    "Orientation": 3.5055970149253732,
+    "GlazingArea": 0.23180970149253732,
+    "GlazingAreaDistribution": 2.7555970149253732
+  },
+  "numeric_scales": {
+    "RelativeCompactness": 0.10529705134284147,
+    "SurfaceArea": 87.5884250516246,
+    "WallArea": 43.438204013391896,
+    "RoofArea": 45.03753599275021,
+    "OverallHeight": 1.7498903535487826,
+    "Orientation": 1.1062772122930358,
+    "GlazingArea": 0.13147515931848625,
+    "GlazingAreaDistribution": 1.5410933370253488
+  },
+  "categories": {},
+  "feature_names_out": [
+    "RelativeCompactness",
+    "SurfaceArea",
+    "WallArea",
+    "RoofArea",
+    "OverallHeight",
+    "Orientation",
+    "GlazingArea",
+    "GlazingAreaDistribution"
+  ]
+}

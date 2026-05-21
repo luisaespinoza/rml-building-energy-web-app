@@ -1,82 +1,63 @@
-import { OUTPUT_LABEL, OUTPUT_MODE, TARGET_NAME } from "./constants.js";
-
-export function formatProbability(probability) {
-  if (!Number.isFinite(probability)) return "Unavailable";
-  if (probability > 0 && probability < 0.001) return "<0.1%";
-  if (probability < 1 && probability > 0.999) return ">99.9%";
-  return `${(probability * 100).toFixed(1)}%`;
+export function formatLoad(value) {
+  if (!Number.isFinite(value)) return "Unavailable";
+  return Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
-export function formatNumber(value) {
+export function formatSignedLoad(value) {
   if (!Number.isFinite(value)) return "Unavailable";
-  const abs = Math.abs(value);
-  if (abs !== 0 && (abs < 0.001 || abs >= 100000)) return value.toExponential(3);
-  return Number(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${formatLoad(value)}`;
 }
 
 export function interpretPrediction(prediction) {
-  if (OUTPUT_MODE === "binary_classification") {
-    const probability = prediction.probability;
-    const band = getProbabilityBand(probability);
-    return {
-      valueText: formatProbability(probability),
-      valueLabel: OUTPUT_LABEL,
-      ...band,
-      caveat: "This output is a local browser inference result from a compact model for a portfolio/educational demo."
-    };
-  }
+  const heatingLoad = Number(prediction.heatingLoad ?? prediction.values?.[0]);
+  const coolingLoad = Number(prediction.coolingLoad ?? prediction.values?.[1]);
+  const totalLoad = heatingLoad + coolingLoad;
+  const balance = heatingLoad - coolingLoad;
+  const dominant = Math.abs(balance) < 1 ? "balanced" : balance > 0 ? "heating-heavy" : "cooling-heavy";
 
-  if (OUTPUT_MODE === "multi_output_regression") {
-    const values = prediction.values || [];
-    return {
-      valueText: values.map(formatNumber).join(" / ") || "Unavailable",
-      valueLabel: OUTPUT_LABEL,
-      label: "Model estimate",
-      className: "risk-medium",
-      summary: `The model returned ${values.length} output value(s) for ${TARGET_NAME}. Customize interpretation.js for project-specific language.`,
-      caveat: "This output is a local browser inference result from a compact model for a portfolio/educational demo."
-    };
-  }
-
-  const value = prediction.values?.[0];
   return {
-    valueText: formatNumber(value),
-    valueLabel: OUTPUT_LABEL,
-    label: "Model estimate",
-    className: "risk-medium",
-    summary: `The model returned an estimated value for ${TARGET_NAME}. Customize interpretation.js for project-specific language.`,
-    caveat: "This output is a local browser inference result from a compact model for a portfolio/educational demo."
+    heatingLoad,
+    coolingLoad,
+    totalLoad,
+    balance,
+    dominant,
+    valueText: formatLoad(totalLoad),
+    valueLabel: "Estimated total load",
+    label: labelForDominance(dominant),
+    className: classForDominance(dominant),
+    summary: summaryForDominance(dominant, heatingLoad, coolingLoad),
+    caveat: "Exploratory surrogate-model estimate only. Do not use for engineering certification, HVAC sizing, code compliance, or permitting decisions."
   };
 }
 
-function getProbabilityBand(probability) {
-  if (!Number.isFinite(probability)) {
-    return {
-      label: "Unavailable",
-      className: "risk-unknown",
-      summary: "The model could not produce a valid probability for this input."
-    };
-  }
+function labelForDominance(dominant) {
+  if (dominant === "heating-heavy") return "Heating load dominates";
+  if (dominant === "cooling-heavy") return "Cooling load dominates";
+  return "Heating and cooling are relatively balanced";
+}
 
-  if (probability < 0.2) {
-    return {
-      label: "Lower estimated probability",
-      className: "risk-low",
-      summary: "The model estimates a lower probability for this input profile in the demo setting."
-    };
-  }
+function classForDominance(dominant) {
+  if (dominant === "heating-heavy") return "risk-high";
+  if (dominant === "cooling-heavy") return "risk-medium";
+  return "risk-low";
+}
 
-  if (probability < 0.5) {
-    return {
-      label: "Moderate estimated probability",
-      className: "risk-medium",
-      summary: "The model estimates a non-trivial probability. Treat this as an exploratory signal, not an operational decision."
-    };
-  }
+function summaryForDominance(dominant, heatingLoad, coolingLoad) {
+  const heating = formatLoad(heatingLoad);
+  const cooling = formatLoad(coolingLoad);
+  if (dominant === "heating-heavy") return `Estimated heating load (${heating}) is higher than cooling load (${cooling}) for this design profile.`;
+  if (dominant === "cooling-heavy") return `Estimated cooling load (${cooling}) is higher than heating load (${heating}) for this design profile.`;
+  return `Estimated heating load (${heating}) and cooling load (${cooling}) are close for this design profile.`;
+}
 
-  return {
-    label: "Higher estimated probability",
-    className: "risk-high",
-    summary: "The model estimates an elevated probability for this input profile. Treat this as a demo signal requiring validation."
-  };
+export function describeChangedFeatures(inputs, baseInputs) {
+  return Object.keys(inputs)
+    .filter((name) => Math.abs(Number(inputs[name]) - Number(baseInputs[name])) > 1e-9)
+    .map((name) => `${labelize(name)}: ${baseInputs[name]} → ${inputs[name]}`)
+    .join("; ");
+}
+
+function labelize(name) {
+  return name.replace(/([a-z])([A-Z])/g, "$1 $2");
 }
