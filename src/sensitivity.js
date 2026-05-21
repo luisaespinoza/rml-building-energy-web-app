@@ -3,13 +3,15 @@ import { generateSingleFeatureVariations } from "./designSpace.js";
 import { preprocessInput } from "./preprocessing.js";
 import { predict } from "./model.js";
 
-export async function runSensitivityAnalysis(baseInputs, schema, modelRuntime, featureNames = NUMERIC_COLUMNS) {
+export async function runSensitivityAnalysis(baseInputs, schema, modelRuntime, options = {}) {
+  const featureNames = options.featureNames || NUMERIC_COLUMNS;
+  const points = options.points || 9;
   const baselinePrediction = await predict(preprocessInput(baseInputs, schema), modelRuntime);
   const baseline = predictionSummary(baselinePrediction);
   const analyses = [];
 
   for (const featureName of featureNames) {
-    const variants = generateSingleFeatureVariations(baseInputs, featureName, schema);
+    const variants = generateSingleFeatureVariations(baseInputs, featureName, schema, { points });
     const rows = [];
 
     for (const inputs of variants) {
@@ -18,6 +20,8 @@ export async function runSensitivityAnalysis(baseInputs, schema, modelRuntime, f
         featureName,
         value: inputs[featureName],
         inputs,
+        changedFeatures: inputs._changedFeatures || [featureName],
+        validationWarnings: inputs._validationWarnings || [],
         ...prediction,
         deltaHeating: prediction.heatingLoad - baseline.heatingLoad,
         deltaCooling: prediction.coolingLoad - baseline.coolingLoad,
@@ -29,18 +33,20 @@ export async function runSensitivityAnalysis(baseInputs, schema, modelRuntime, f
     const best = rows.slice().sort((a, b) => a.totalLoad - b.totalLoad)[0] || null;
     const worst = rows.slice().sort((a, b) => b.totalLoad - a.totalLoad)[0] || null;
 
-    analyses.push({
-      featureName,
-      current,
-      best,
-      worst,
-      rangeTotal: worst && best ? worst.totalLoad - best.totalLoad : 0,
-      rows
-    });
+    if (rows.length) {
+      analyses.push({
+        featureName,
+        current,
+        best,
+        worst,
+        rangeTotal: worst && best ? worst.totalLoad - best.totalLoad : 0,
+        rows
+      });
+    }
   }
 
   analyses.sort((a, b) => Math.abs(b.rangeTotal) - Math.abs(a.rangeTotal));
-  return { baseline, analyses };
+  return { baseline, analyses, points };
 }
 
 export function predictionSummary(prediction) {

@@ -21,6 +21,7 @@ import { getModelRuntimeInfo, loadDeploymentManifest, loadModel, predict } from 
 import { describePreprocessing, loadPreprocessingSchema, preprocessInput } from "./preprocessing.js";
 import { runSensitivityAnalysis } from "./sensitivity.js";
 import { findNearbyAlternatives } from "./alternatives.js";
+import { validateDesignInputs } from "./designSpace.js";
 
 const MODES = [
   { id: "estimate", label: "Estimate" },
@@ -28,6 +29,7 @@ const MODES = [
   { id: "alternatives", label: "Alternatives" },
   { id: "diagnostics", label: "Diagnostics" }
 ];
+
 export function createApp(root) {
   const state = {
     mode: "estimate",
@@ -45,27 +47,29 @@ export function createApp(root) {
     sensitivity: null,
     alternatives: null,
     objective: OBJECTIVES[0].value,
+    sensitivityGranularity: 9,
     debug: null,
     activeInfo: null,
     frozenAlternativeFields: {}
   };
-      function openInfoModal(fieldName) {
-      const field = INPUT_FIELDS.find((item) => item.name === fieldName);
-      if (!field?.info) return;
 
-      state.activeInfo = {
-        title: field.label,
-        body: field.info,
-        help: field.help || ""
-      };
+  function openInfoModal(fieldName) {
+    const field = INPUT_FIELDS.find((item) => item.name === fieldName);
+    if (!field?.info) return;
 
-      render();
-    }
+    state.activeInfo = {
+      title: field.label,
+      body: field.info,
+      help: field.help || ""
+    };
 
-    function closeInfoModal() {
-      state.activeInfo = null;
-      render();
-    }
+    render();
+  }
+
+  function closeInfoModal() {
+    state.activeInfo = null;
+    render();
+  }
 
   function toggleFrozenAlternativeField(name, checked) {
     state.frozenAlternativeFields = {
@@ -86,10 +90,9 @@ export function createApp(root) {
   async function init() {
     render();
     window.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && state.activeInfo) {
-        closeInfoModal();
-      }
+      if (event.key === "Escape" && state.activeInfo) closeInfoModal();
     });
+
     const warnings = [];
     try {
       state.manifest = await loadDeploymentManifest(DEPLOYMENT_MANIFEST_PATH).catch((error) => {
@@ -141,9 +144,19 @@ export function createApp(root) {
   function readInputsFromForm(form) {
     const formData = new FormData(form);
     const nextInputs = { ...state.inputs };
-    for (const field of INPUT_FIELDS) nextInputs[field.name] = coerceFormValue(field, formData.get(field.name));
+    for (const field of INPUT_FIELDS) {
+      nextInputs[field.name] = coerceFormValue(field, formData.get(field.name));
+    }
     state.inputs = nextInputs;
     return nextInputs;
+  }
+
+  function validateCurrentDesign() {
+    const validation = validateDesignInputs(state.inputs);
+    if (!validation.valid) {
+      throw new Error(`Current design is not geometrically plausible: ${validation.errors.join(" ")}`);
+    }
+    return validation;
   }
 
   function setMode(mode) {
@@ -184,6 +197,7 @@ export function createApp(root) {
     event.preventDefault();
     readInputsFromForm(event.currentTarget);
     await withRun(async () => {
+      validateCurrentDesign();
       const { schema, runtime } = await ensureRuntime();
       const vector = preprocessInput(state.inputs, schema);
       const prediction = await predict(vector, runtime);
@@ -194,8 +208,11 @@ export function createApp(root) {
 
   async function runSensitivity() {
     await withRun(async () => {
+      validateCurrentDesign();
       const { schema, runtime } = await ensureRuntime();
-      state.sensitivity = await runSensitivityAnalysis(state.inputs, schema, runtime);
+      state.sensitivity = await runSensitivityAnalysis(state.inputs, schema, runtime, {
+        points: state.sensitivityGranularity
+      });
       updateDebug();
     });
   }
@@ -256,6 +273,9 @@ export function createApp(root) {
       scalerComplete: preprocessing?.scalerStatus?.complete ?? null,
       scalerDetails: preprocessing?.scalerStatus?.details || [],
       manifest: state.manifest || state.runtime?.manifest || null,
+      designValidation: validateDesignInputs(state.inputs),
+      frozenAlternativeFields: getFrozenAlternativeFields(),
+      sensitivityGranularity: state.sensitivityGranularity,
       lastPrediction: prediction || null
     };
   }
@@ -284,6 +304,7 @@ export function createApp(root) {
               <p>${escapeHtml(FORM_HELP)}</p>
             </div>
             <div class="field-grid">${INPUT_FIELDS.map(renderField).join("")}</div>
+            ${renderDesignValidation()}
             <div class="button-row">
               <button type="submit" class="primary-button" ${state.loading || state.running ? "disabled" : ""}>${state.running ? "Running..." : escapeHtml(RUN_BUTTON_LABEL)}</button>
               <button type="button" class="secondary-button" id="sensitivity-button" ${state.loading || state.running ? "disabled" : ""}>Run sensitivity</button>
@@ -294,6 +315,7 @@ export function createApp(root) {
 
           <aside class="card result-card">
             ${renderExamples()}
+            ${renderSensitivityControl()}
             ${renderObjectiveControl()}
             ${renderModelDetails()}
           </aside>
@@ -312,7 +334,13 @@ export function createApp(root) {
     root.querySelector("#reset-button")?.addEventListener("click", resetInputs);
     root.querySelector("#sensitivity-button")?.addEventListener("click", () => { state.mode = "sensitivity"; runSensitivity(); });
     root.querySelector("#alternatives-button")?.addEventListener("click", () => { state.mode = "alternatives"; runAlternatives(); });
-    root.querySelector("#objective-select")?.addEventListener("change", (event) => { state.objective = event.target.value; state.alternatives = null; });
+    root.querySelector("#objective-select")?.addEventListener("change", (event) => { state.objective = event.target.value; state.alternatives = null; render(); });
+    root.querySelector("#sensitivity-granularity")?.addEventListener("input", (event) => {
+      const nextValue = Number(event.target.value);
+      state.sensitivityGranularity = Number.isFinite(nextValue) ? nextValue : 9;
+      state.sensitivity = null;
+      render();
+    });
     root.querySelectorAll("[data-freeze-field]").forEach((input) => {
       input.addEventListener("change", (event) => {
         toggleFrozenAlternativeField(event.target.dataset.freezeField, event.target.checked);
@@ -323,12 +351,11 @@ export function createApp(root) {
     root.querySelectorAll("[data-info-field]").forEach((button) => {
       button.addEventListener("click", () => openInfoModal(button.dataset.infoField));
     });
-
     root.querySelector("[data-close-info]")?.addEventListener("click", closeInfoModal);
-
     root.querySelector("[data-modal-backdrop]")?.addEventListener("click", (event) => {
       if (event.target === event.currentTarget) closeInfoModal();
     });
+
     for (const field of INPUT_FIELDS) {
       const element = root.querySelector(`[name="${field.name}"]`);
       element?.addEventListener("input", (event) => updateInput(field.name, event.target.value));
@@ -378,12 +405,28 @@ export function createApp(root) {
       </label>
     `;
 
-    return `
-      <div class="field">
-        ${renderFieldLabel(field, inputId)}
+    const control = field.type === "select"
+      ? `
         <select id="${escapeHtml(inputId)}" name="${escapeHtml(field.name)}">
           ${field.options.map((option) => `<option value="${escapeHtml(option.value)}" ${Number(option.value) === Number(value) ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
         </select>
+      `
+      : `
+        <input
+          id="${escapeHtml(inputId)}"
+          name="${escapeHtml(field.name)}"
+          type="${escapeHtml(field.type || "number")}"
+          min="${escapeHtml(field.min)}"
+          max="${escapeHtml(field.max)}"
+          step="${escapeHtml(field.step)}"
+          value="${escapeHtml(value)}"
+        />
+      `;
+
+    return `
+      <div class="field">
+        ${renderFieldLabel(field, inputId)}
+        ${control}
         <small>${escapeHtml(field.help)}</small>
         ${freezeControl}
       </div>
@@ -404,6 +447,21 @@ export function createApp(root) {
             i
           </button>
         ` : ""}
+      </div>
+    `;
+  }
+
+  function renderDesignValidation() {
+    const validation = validateDesignInputs(state.inputs);
+    if (validation.valid && !validation.warnings.length) return "";
+
+    const errors = validation.errors.map((error) => `<li>${escapeHtml(error)}</li>`).join("");
+    const warnings = validation.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("");
+
+    return `
+      <div class="design-validation ${validation.valid ? "warning" : "error"}">
+        ${errors ? `<strong>Geometry check</strong><ul>${errors}</ul>` : ""}
+        ${warnings ? `<strong>Model-range note</strong><ul>${warnings}</ul>` : ""}
       </div>
     `;
   }
@@ -435,11 +493,13 @@ export function createApp(root) {
   }
 
   function renderSensitivity() {
-    if (!state.sensitivity) return `<div class="empty-result"><h2>Sensitivity analysis</h2><p>Run a one-feature-at-a-time sweep to see which design inputs move total load most near the current profile.</p></div>`;
+    if (!state.sensitivity) {
+      return `<div class="empty-result"><h2>Sensitivity analysis</h2><p>Run a one-feature-at-a-time sweep to see which inputs move total load near the current profile. Continuous fields use ${escapeHtml(state.sensitivityGranularity)} incremental sweep points; categorical fields use their valid encoded categories. Geometry constraints are enforced before inference.</p></div>`;
+    }
     return `
       <div class="analysis-panel">
         <h2>Sensitivity analysis</h2>
-        <p>Features are sorted by total-load spread across observed/safe values. Deltas are relative to the current input profile.</p>
+        <p>Features are sorted by total-load spread across bounded sweep values. Continuous fields used ${escapeHtml(state.sensitivity.points || state.sensitivityGranularity)} incremental sweep points; categorical fields used their valid encoded categories. Deltas are relative to the current input profile.</p>
         <div class="analysis-list">
           ${state.sensitivity.analyses.map((item) => `
             <article class="analysis-item">
@@ -451,6 +511,7 @@ export function createApp(root) {
                 <thead><tr><th>Value</th><th>Heating</th><th>Cooling</th><th>Total Δ</th></tr></thead>
                 <tbody>${item.rows.map((row) => `<tr class="${Number(row.value) === Number(state.inputs[item.featureName]) ? "current-row" : ""}"><td>${escapeHtml(row.value)}</td><td>${formatLoad(row.heatingLoad)}</td><td>${formatLoad(row.coolingLoad)}</td><td>${formatSignedLoad(row.deltaTotal)}</td></tr>`).join("")}</tbody>
               </table>
+              <small>${escapeHtml(item.rows.length)} feasible sweep point(s) evaluated after geometry filtering.</small>
             </article>
           `).join("")}
         </div>
@@ -459,13 +520,16 @@ export function createApp(root) {
   }
 
   function renderAlternatives() {
-    if (!state.alternatives) return `<div class="empty-result"><h2>Nearby alternatives</h2><p>Generate nearby profiles by changing one or two observed-value inputs, then rank them by the selected objective.</p></div>`;
-    return `
-      <div class="analysis-panel">
-        <h2>Nearby alternatives</h2>
-        <p>Objective: <strong>${escapeHtml(state.alternatives.objectiveLabel)}</strong>. Negative deltas indicate lower estimated load than the current profile.</p>
-        <p class="analysis-note">${escapeHtml(getFrozenAlternativeFields().length ? `Frozen during search: ${getFrozenAlternativeFields().map(labelize).join(", ")}` : "No parameters frozen during this search.")}</p>
-        <div class="alternative-grid">
+    if (!state.alternatives) {
+      return `<div class="empty-result"><h2>Nearby alternatives</h2><p>Generate nearby profiles by changing one or two inputs, repairing and rejecting implausible geometry, then rank them by the selected objective.</p></div>`;
+    }
+
+    const frozenCopy = getFrozenAlternativeFields().length
+      ? `Frozen during search: ${getFrozenAlternativeFields().map(labelize).join(", ")}`
+      : "No parameters frozen during this search.";
+
+    const alternativesMarkup = state.alternatives.alternatives.length
+      ? `<div class="alternative-grid">
           ${state.alternatives.alternatives.map((item, index) => `
             <article class="alternative-card">
               <h3>#${index + 1} · Total ${formatLoad(item.totalLoad)}</h3>
@@ -475,9 +539,38 @@ export function createApp(root) {
                 ${metric("Total Δ", item.deltaTotal, true)}
               </div>
               <p>${escapeHtml(describeChangedFeatures(item.inputs, state.inputs) || "No input changes")}</p>
+              ${item.validationWarnings?.length ? `<small>${escapeHtml(item.validationWarnings.join(" "))}</small>` : ""}
             </article>
           `).join("")}
-        </div>
+        </div>`
+      : `<p class="analysis-note">No plausible nearby alternatives were found under the current freeze settings and geometry constraints.</p>`;
+
+    return `
+      <div class="analysis-panel">
+        <h2>Nearby alternatives</h2>
+        <p>Objective: <strong>${escapeHtml(state.alternatives.objectiveLabel)}</strong>. Negative deltas indicate lower estimated load than the current profile.</p>
+        <p class="analysis-note">${escapeHtml(frozenCopy)}</p>
+        ${alternativesMarkup}
+      </div>
+    `;
+  }
+
+
+  function renderSensitivityControl() {
+    return `
+      <div class="objective-panel">
+        <label class="field">
+          <span>Sensitivity sweep granularity</span>
+          <input
+            id="sensitivity-granularity"
+            type="range"
+            min="5"
+            max="31"
+            step="2"
+            value="${escapeHtml(state.sensitivityGranularity)}"
+          />
+          <small>${escapeHtml(state.sensitivityGranularity)} points per continuous feature. Higher values produce denser sweeps while staying local and fast.</small>
+        </label>
       </div>
     `;
   }
@@ -528,28 +621,29 @@ export function createApp(root) {
       </div>
     `;
   }
-  function renderInfoModal() {
-  if (!state.activeInfo) return "";
 
-  return `
-    <div class="modal-backdrop" data-modal-backdrop>
-      <section
-        class="info-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="info-modal-title"
-      >
-        <button type="button" class="modal-close-button" data-close-info aria-label="Close information dialog">
-          ×
-        </button>
-        <p class="eyebrow">Input field guide</p>
-        <h2 id="info-modal-title">${escapeHtml(state.activeInfo.title)}</h2>
-        <p>${escapeHtml(state.activeInfo.body)}</p>
-        ${state.activeInfo.help ? `<small>${escapeHtml(state.activeInfo.help)}</small>` : ""}
-      </section>
-    </div>
-  `;
-}
+  function renderInfoModal() {
+    if (!state.activeInfo) return "";
+
+    return `
+      <div class="modal-backdrop" data-modal-backdrop>
+        <section
+          class="info-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="info-modal-title"
+        >
+          <button type="button" class="modal-close-button" data-close-info aria-label="Close information dialog">
+            ×
+          </button>
+          <p class="eyebrow">Input field guide</p>
+          <h2 id="info-modal-title">${escapeHtml(state.activeInfo.title)}</h2>
+          <p>${escapeHtml(state.activeInfo.body)}</p>
+          ${state.activeInfo.help ? `<small>${escapeHtml(state.activeInfo.help)}</small>` : ""}
+        </section>
+      </div>
+    `;
+  }
 
   function projectLink(href, label, subtitle) {
     return `<a href="${escapeHtml(href)}" target="_blank" rel="noreferrer" class="project-link"><span class="project-link-icon" aria-hidden="true">${githubIcon()}</span><span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(subtitle)}</small></span></a>`;
