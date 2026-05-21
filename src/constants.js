@@ -5,7 +5,8 @@ export const PROJECT_SUMMARY =
 
 export const PROJECT_SUMMARY2 =
   "This demo is not a definitive energy analysis tool, but it shows how production surrogate models can support fast early-stage screening, lead verification, and what-if exploration before deeper simulation or professional review.";
-export const APP_BASE_URL = import.meta.env.BASE_URL || "/";
+
+export const APP_BASE_URL = import.meta.env?.BASE_URL || "./";
 export const ARTIFACT_ROOT = `${APP_BASE_URL}artifacts`;
 export const DEPLOYMENT_ARTIFACT_DIR = `${ARTIFACT_ROOT}/deployment`;
 
@@ -13,7 +14,6 @@ export const HEATING_MODEL_PATH = `${DEPLOYMENT_ARTIFACT_DIR}/heating_load_model
 export const COOLING_MODEL_PATH = `${DEPLOYMENT_ARTIFACT_DIR}/cooling_load_model.onnx`;
 export const PREPROCESSING_SCHEMA_PATH = `${DEPLOYMENT_ARTIFACT_DIR}/preprocessing_schema.json`;
 export const DEPLOYMENT_MANIFEST_PATH = `${DEPLOYMENT_ARTIFACT_DIR}/deployment_manifest.json`;
-
 export const EXAMPLE_INPUTS_PATH = `${APP_BASE_URL}example_inputs.json`;
 
 export const ORT_WASM_PATH = `${APP_BASE_URL}artifacts/ort-wasm/`;
@@ -40,6 +40,17 @@ export const NUMERIC_COLUMNS = [
   "GlazingAreaDistribution"
 ];
 
+export const GEOMETRY_FIELDS = ["SurfaceArea", "WallArea", "RoofArea", "OverallHeight"];
+export const CONTINUOUS_FIELDS = [
+  "RelativeCompactness",
+  "SurfaceArea",
+  "WallArea",
+  "RoofArea",
+  "OverallHeight",
+  "GlazingArea"
+];
+export const CATEGORICAL_DESIGN_FIELDS = ["Orientation", "GlazingAreaDistribution"];
+
 export const CATEGORICAL_COLUMNS = [];
 export const FALLBACK_CATEGORIES = {};
 
@@ -49,11 +60,14 @@ export const DEFAULT_INPUTS = {
   WallArea: 416.5,
   RoofArea: 122.5,
   OverallHeight: 7.0,
-  Orientation: 2,
-  GlazingArea: 0.1,
-  GlazingAreaDistribution: 1
+  Orientation: 3,
+  GlazingArea: 0.25,
+  GlazingAreaDistribution: 3
 };
 
+// Observed values from the source simulation dataset. Categorical fields stay on
+// these observed enumerations. Continuous fields can use these as anchors, but
+// the UI and candidate generator may also probe interpolated values.
 export const DESIGN_VALUE_SETS = {
   RelativeCompactness: [0.62, 0.64, 0.66, 0.69, 0.71, 0.74, 0.76, 0.79, 0.82, 0.86, 0.9, 0.98],
   SurfaceArea: [514.5, 563.5, 588.0, 612.5, 637.0, 661.5, 686.0, 710.5, 735.0, 759.5, 784.0, 808.5],
@@ -65,10 +79,26 @@ export const DESIGN_VALUE_SETS = {
   GlazingAreaDistribution: [0, 1, 2, 3, 4, 5]
 };
 
+export const DESIGN_BOUNDS = {
+  RelativeCompactness: { min: 0.62, max: 0.98, step: 0.02, sweepStep: 0.04, alternativeStep: 0.02 },
+  SurfaceArea: { min: 514.5, max: 808.5, step: 0.5, sweepStep: 24.5, alternativeStep: 24.5 },
+  WallArea: { min: 245.0, max: 416.5, step: 0.5, sweepStep: 24.5, alternativeStep: 24.5 },
+  RoofArea: { min: 110.25, max: 220.5, step: 0.25, sweepStep: 12.25, alternativeStep: 12.25 },
+  OverallHeight: { min: 3.5, max: 7.0, step: 0.1, sweepStep: 0.5, alternativeStep: 0.5 },
+  // The original dataset used 0.00, 0.10, 0.25, and 0.40. This wider
+  // 0-1 range is intentionally available as an extrapolative what-if probe.
+  GlazingArea: { min: 0, max: 1, step: 0.01, sweepStep: 0.1, alternativeStep: 0.05 }
+};
+
+export const GEOMETRY_VALIDATION = {
+  surfaceAreaTolerance: 2.0,
+  wallLowerBoundTolerance: 2.0
+};
+
 export const PROJECT_LINKS = {
-  webRepo: "https://github.com/luisaespinoza/rml-building-energy-design-explorer",
-  trainingRepo: "https://github.com/luisaespinoza/rml-building-energy-training",
-  githubProfile: "https://github.com/luisaespinoza"
+  webRepo: "https://github.com/YOUR_USERNAME/rml-building-energy-design-explorer",
+  trainingRepo: "https://github.com/YOUR_USERNAME/rml-building-energy-training",
+  githubProfile: "https://github.com/YOUR_USERNAME"
 };
 
 export const REQUIRED_DEPLOYMENT_FILES = [
@@ -134,12 +164,13 @@ export const FALLBACK_EXAMPLES = [
 ];
 
 export const RESPONSIBLE_USE_COPY =
-  "Educational portfolio demo only. The estimates shown here should never be treated as definitive engineering results, code-compliance evidence, HVAC sizing guidance, or construction/permitting advice. In production settings, validated surrogate models like this can support quick early-stage screening, lead verification, and design triage, but final decisions require independent validation, domain review, and appropriate building-energy simulation or professional analysis. User-entered values stay in the browser for local inference; this app does not collect, store, or transmit user input.";
+  "This app is a surrogate-model decision-support demo for rapid screening, comparison, and early design exploration. The estimates can help prioritize designs for deeper review, but they should be verified with appropriate engineering analysis and qualified human judgment before being used for certification, HVAC sizing, code compliance, permitting, or other final decisions. User-entered values stay in the browser for local inference; this app does not collect, store, or transmit user input.";
+
 export const MODEL_FACTS = [
   "Dedicated Tiny neural nets for heating and cooling load",
   "Runs local ONNX inference in the browser",
-  "Supports estimate, sensitivity, and alternative-design workflows",
-  "Useful as a surrogate-model screening pattern, not a definitive engineering tool",
+  "Runs instantaneous local sensitivity sweeps and design what-if checks",
+  "Uses constrained candidate search for plausible geometric combinations",
   "No user-entered data is collected, stored, or transmitted"
 ];
 

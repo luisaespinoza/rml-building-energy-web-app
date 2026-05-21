@@ -27,7 +27,7 @@ export function interpretPrediction(prediction) {
     label: labelForDominance(dominant),
     className: classForDominance(dominant),
     summary: summaryForDominance(dominant, heatingLoad, coolingLoad),
-    caveat: "Exploratory surrogate-model estimate only. Do not use for engineering certification, HVAC sizing, code compliance, or permitting decisions."
+    caveat: "Use for rapid screening and design exploration. Verify with appropriate engineering review before applying results to final design or compliance decisions."
   };
 }
 
