@@ -4,17 +4,17 @@ on:
   push:
     branches:
       - main
-
   workflow_dispatch:
 
 permissions:
   contents: read
   pages: write
   id-token: write
+  actions: write
 
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -49,6 +49,7 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
+          name: building-energy-pages
 
   deploy:
     environment:
@@ -62,3 +63,5 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: building-energy-pages
