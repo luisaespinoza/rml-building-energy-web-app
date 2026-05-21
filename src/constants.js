@@ -96,9 +96,9 @@ export const GEOMETRY_VALIDATION = {
 };
 
 export const PROJECT_LINKS = {
-  webRepo: "https://github.com/YOUR_USERNAME/rml-building-energy-design-explorer",
-  trainingRepo: "https://github.com/YOUR_USERNAME/rml-building-energy-training",
-  githubProfile: "https://github.com/YOUR_USERNAME"
+  webRepo: "https://github.com/luisaespinoza/rml-building-energy-web-app",
+  trainingRepo: "https://github.com/luisaespinoza/rml-building-energy-training",
+  githubProfile: "https://github.com/luisaespinoza"
 };
 
 export const REQUIRED_DEPLOYMENT_FILES = [
